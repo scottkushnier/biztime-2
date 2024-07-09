@@ -1,7 +1,9 @@
 const express = require("express");
 const db = require("../db");
+const slugify = require("slugify");
 
 const router = new express.Router();
+const ExpressError = require("../expressError");
 
 router.use(express.json());
 
@@ -26,8 +28,17 @@ router.get("/:code", async function (req, res, next) {
         "SELECT * FROM invoices WHERE comp_code = $1",
         [code]
       );
+      const industries = await db.query(
+        `SELECT industries.name FROM companies JOIN companyIndustries ON companies.code = companyIndustries.company_code JOIN industries
+ ON companyIndustries.industry_code = industries.code WHERE companies.code = $1`,
+        [code]
+      );
       return res.json({
-        company: { ...results.rows[0], invoices: invoices.rows },
+        company: {
+          ...results.rows[0],
+          industries: industries.rows.map((x) => x.name),
+          invoices: invoices.rows,
+        },
       });
     } else {
       return res.status(404).json("error");
@@ -42,11 +53,14 @@ router.post("/", async function (req, res, next) {
   try {
     data = req.body;
     // console.log("data:", data);
+    if (!data.code) {
+      data.code = slugify(data.name);
+    }
     const results = await db.query(
       "INSERT INTO companies (code, name, description) VALUES ($1, $2, $3);",
       [data.code, data.name, data.description]
     );
-    return res.json({ company: data });
+    return res.status(201).json({ company: data });
   } catch (err) {
     next(err);
   }
@@ -87,6 +101,19 @@ router.delete("/:code", async function (req, res, next) {
     } else {
       return res.status(404).json("error");
     }
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:company/:industry", async function (req, res, next) {
+  try {
+    data = req.params;
+    const results = await db.query(
+      "INSERT INTO companyIndustries (company_code, industry_code) VALUES ($1, $2);",
+      [data.company, data.industry]
+    );
+    return res.status(201).json({ companyIndustry: data });
   } catch (err) {
     next(err);
   }

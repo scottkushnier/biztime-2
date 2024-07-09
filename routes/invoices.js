@@ -2,6 +2,7 @@ const express = require("express");
 const db = require("../db");
 
 const router = new express.Router();
+const ExpressError = require("../expressError");
 
 router.use(express.json());
 
@@ -39,7 +40,7 @@ router.post("/", async function (req, res, next) {
       [data.comp_code, data.amt, false]
     );
     // console.log(results);
-    return res.json({ invoice: results.rows[0] });
+    return res.status(201).json({ invoice: results.rows[0] });
   } catch (err) {
     next(err);
   }
@@ -48,7 +49,7 @@ router.post("/", async function (req, res, next) {
 router.put("/:id", async function (req, res, next) {
   try {
     const id = req.params.id;
-    const { amt } = req.body;
+    const { amt, paid } = req.body;
     console.log("amt", amt);
     const invoiceResult = await db.query(
       "SELECT * FROM invoices WHERE id = $1",
@@ -58,19 +59,35 @@ router.put("/:id", async function (req, res, next) {
       return res.status(404).json("error");
     }
     const invoice = invoiceResult.rows[0];
-    // console.log("invoice", invoice);
-    if (invoice.amt != amt) {
-      console.log("wrong amount: was expecting: ", invoice.amt, " got: ", amt);
-      return res.json("wrong amount");
+    let result;
+    if (paid) {
+      // setting to paid now, with amount
+      // console.log("invoice", invoice);
+      if (invoice.amt != amt) {
+        console.log(
+          "wrong amount: was expecting: ",
+          invoice.amt,
+          " got: ",
+          amt
+        );
+        return res.json({ msg: "wrong amount" });
+      }
+      if (invoice.paid) {
+        console.log("invoice was already paid");
+        return res.json({ msg: "already paid" });
+      }
+      result = await db.query(
+        "UPDATE invoices SET paid = true, paid_date = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *",
+        [id]
+      );
+    } else {
+      // setting to not-paid
+      result = await db.query(
+        "UPDATE invoices SET paid = false, paid_date = NULL WHERE id = $1 RETURNING *",
+        [id]
+      );
     }
-    if (invoice.paid) {
-      console.log("invoice was already paid");
-      return res.json("already paid");
-    }
-    const result = await db.query(
-      "UPDATE invoices SET paid = true, paid_date = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *",
-      [id]
-    );
+
     // console.log("result:", result);
     if (result.rowCount) {
       return res.json({
